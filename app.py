@@ -264,13 +264,17 @@ GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1Ja1QU7Fhz9vcDiKOe5z8
 
 
 def auto_connect_gsheet():
-    """Silently connect to Google Sheet using secrets + hardcoded URL."""
-    if "gsheet_ws" in st.session_state and st.session_state["gsheet_ws"] is not None:
-        return  # Already connected
+    """Connect to Google Sheet using secrets + hardcoded URL. Shows errors on Settings tab."""
+    # Only attempt once per session — if already tried, skip
+    if "gsheet_connection_attempted" in st.session_state:
+        return
+    st.session_state["gsheet_connection_attempted"] = True
+    st.session_state["gsheet_error"] = None
 
     sheet_url = GOOGLE_SHEET_URL
     if not sheet_url:
         st.session_state["gsheet_ws"] = None
+        st.session_state["gsheet_error"] = "GOOGLE_SHEET_URL is empty in app.py"
         return
 
     has_secrets = False
@@ -282,19 +286,23 @@ def auto_connect_gsheet():
 
     if not has_secrets:
         st.session_state["gsheet_ws"] = None
+        st.session_state["gsheet_error"] = "No [gcp_service_account] found in Streamlit Secrets"
         return
 
     client, err = get_gsheet_connection()
     if err:
         st.session_state["gsheet_ws"] = None
+        st.session_state["gsheet_error"] = f"Auth error: {err}"
         return
 
     ws, err = get_or_create_worksheet(client, sheet_url)
     if err:
         st.session_state["gsheet_ws"] = None
+        st.session_state["gsheet_error"] = f"Sheet error: {err}"
         return
 
     st.session_state["gsheet_ws"] = ws
+    st.session_state["gsheet_error"] = None
 
 
 # ─── Main App ───
@@ -352,9 +360,24 @@ def render_settings():
 
     # Show connection status
     ws = st.session_state.get("gsheet_ws")
+    gsheet_error = st.session_state.get("gsheet_error")
+
     if ws:
         st.success("✅ Connected to Google Sheet successfully!")
         st.caption(f"Sheet URL: {GOOGLE_SHEET_URL}")
+    elif gsheet_error:
+        st.error(f"❌ Connection failed: {gsheet_error}")
+        st.markdown("**Troubleshooting:**")
+        st.markdown("- Check that Secrets are saved in Streamlit Cloud (Settings → Secrets)")
+        st.markdown("- Check that the Google Sheet is shared with the service account email as Editor")
+        st.markdown(f"- Service account email: `dt-simulator@lecturekit-auth.iam.gserviceaccount.com`")
+        st.markdown(f"- Sheet URL: `{GOOGLE_SHEET_URL}`")
+
+        if st.button("🔄 Retry Connection"):
+            st.session_state.pop("gsheet_connection_attempted", None)
+            st.session_state.pop("gsheet_ws", None)
+            st.session_state.pop("gsheet_error", None)
+            st.rerun()
     elif GOOGLE_SHEET_URL:
         st.warning("⚠️ Google Sheet URL is set but connection failed. Check secrets and sheet sharing permissions.")
 
