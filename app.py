@@ -365,33 +365,81 @@ def render_settings():
     if ws:
         st.success("✅ Connected to Google Sheet successfully!")
         st.caption(f"Sheet URL: {GOOGLE_SHEET_URL}")
-    elif gsheet_error:
-        st.error(f"❌ Connection failed: {gsheet_error}")
-        st.markdown("**Troubleshooting:**")
-        st.markdown("- Check that Secrets are saved in Streamlit Cloud (Settings → Secrets)")
-        st.markdown("- Check that the Google Sheet is shared with the service account email as Editor")
-        st.markdown(f"- Service account email: `dt-simulator@lecturekit-auth.iam.gserviceaccount.com`")
-        st.markdown(f"- Sheet URL: `{GOOGLE_SHEET_URL}`")
-
-        if st.button("🔄 Retry Connection"):
-            st.session_state.pop("gsheet_connection_attempted", None)
-            st.session_state.pop("gsheet_ws", None)
-            st.session_state.pop("gsheet_error", None)
-            st.rerun()
-    elif GOOGLE_SHEET_URL:
-        st.warning("⚠️ Google Sheet URL is set but connection failed. Check secrets and sheet sharing permissions.")
-
-        # Manual retry
-        if st.button("🔄 Retry Connection"):
-            st.session_state.pop("gsheet_ws", None)
-            auto_connect_gsheet()
-            st.rerun()
     else:
-        st.info("ℹ️ Running in **local mode** — submissions are saved in session memory only.")
-        st.markdown("**To connect Google Sheets:**")
-        st.markdown("1. Set `GOOGLE_SHEET_URL` at the top of `app.py`")
-        st.markdown("2. Add your service account credentials in Streamlit Secrets")
-        st.markdown("3. Share the Google Sheet with your service account email as Editor")
+        if gsheet_error:
+            st.error(f"❌ Connection failed: {gsheet_error}")
+        else:
+            st.warning("⚠️ Google Sheet is not connected.")
+
+        st.markdown("**Troubleshooting checklist:**")
+        st.markdown(f"1. **Sheet URL set?** `{GOOGLE_SHEET_URL[:60]}...`" if GOOGLE_SHEET_URL else "1. ❌ **Sheet URL is empty** — edit `GOOGLE_SHEET_URL` in `app.py`")
+
+        has_secrets = False
+        try:
+            _ = st.secrets["gcp_service_account"]
+            has_secrets = True
+        except (KeyError, FileNotFoundError):
+            pass
+        st.markdown(f"2. **Secrets configured?** {'✅ Yes' if has_secrets else '❌ No — add secrets in Streamlit Cloud Settings → Secrets'}")
+        st.markdown(f"3. **Google Sheet shared with service account?** Share as Editor with:")
+        st.code("dt-simulator@lecturekit-auth.iam.gserviceaccount.com")
+
+        # Live test button
+        if st.button("🔄 Test Connection Now"):
+            st.markdown("---")
+            st.markdown("**Running connection test...**")
+
+            # Step 1: Check secrets
+            try:
+                creds_dict = dict(st.secrets["gcp_service_account"])
+                st.markdown("✅ Step 1: Secrets found")
+            except Exception as e:
+                st.error(f"❌ Step 1: Cannot read secrets — {e}")
+                return
+
+            # Step 2: Authenticate
+            try:
+                scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+                from google.oauth2.service_account import Credentials
+                creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+                import gspread
+                client = gspread.authorize(creds)
+                st.markdown(f"✅ Step 2: Authenticated as `{creds_dict.get('client_email', 'unknown')}`")
+            except Exception as e:
+                st.error(f"❌ Step 2: Authentication failed — {e}")
+                return
+
+            # Step 3: Open spreadsheet
+            try:
+                sh = client.open_by_url(GOOGLE_SHEET_URL)
+                st.markdown(f"✅ Step 3: Opened spreadsheet: **{sh.title}**")
+            except Exception as e:
+                st.error(f"❌ Step 3: Cannot open spreadsheet — {e}")
+                st.markdown("**This usually means the Google Sheet is not shared with the service account email.**")
+                return
+
+            # Step 4: Access/create worksheet
+            try:
+                try:
+                    ws_test = sh.worksheet("Submissions")
+                except:
+                    HEADERS = ["Timestamp", "Student Name", "Student ID", "Workflow Area",
+                               "Sub-Process", "DT Solution", "Technology Categories",
+                               "Challenges", "Challenge Categories", "Implementation Roadmap",
+                               "Timeline", "Impact Level"]
+                    ws_test = sh.add_worksheet(title="Submissions", rows=1000, cols=len(HEADERS))
+                    ws_test.append_row(HEADERS)
+                st.markdown("✅ Step 4: 'Submissions' worksheet ready")
+
+                # Save to session state
+                st.session_state["gsheet_ws"] = ws_test
+                st.session_state["gsheet_error"] = None
+                st.session_state["gsheet_connection_attempted"] = True
+                st.success("🎉 **Connection successful!** Submissions will now save to Google Sheet.")
+                st.balloons()
+            except Exception as e:
+                st.error(f"❌ Step 4: Worksheet error — {e}")
+                return
 
     # Manual URL override (for testing)
     with st.expander("Manual Google Sheet URL (override)"):
