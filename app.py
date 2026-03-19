@@ -260,7 +260,7 @@ def load_from_gsheet(ws):
 
 # ─── Google Sheets Auto-Connect ───
 # *** INSTRUCTOR: Paste your Google Sheet URL below ***
-GOOGLE_SHEET_URL = ""  # e.g., "https://docs.google.com/spreadsheets/d/1aBcDeFgHiJkLmNoPqRsTuVwXyZ/edit"
+GOOGLE_SHEET_URL = ""  https://docs.google.com/spreadsheets/d/1Ja1QU7Fhz9vcDiKOe5z8gbmT3accQWy9Yb-npm7VSjQ/edit?gid=0#gid=0"
 
 
 def auto_connect_gsheet():
