@@ -258,6 +258,45 @@ def load_from_gsheet(ws):
     return ws.get_all_records()
 
 
+# ─── Google Sheets Auto-Connect ───
+# *** INSTRUCTOR: Paste your Google Sheet URL below ***
+GOOGLE_SHEET_URL = ""  # e.g., "https://docs.google.com/spreadsheets/d/1aBcDeFgHiJkLmNoPqRsTuVwXyZ/edit"
+
+
+def auto_connect_gsheet():
+    """Silently connect to Google Sheet using secrets + hardcoded URL."""
+    if "gsheet_ws" in st.session_state and st.session_state["gsheet_ws"] is not None:
+        return  # Already connected
+
+    sheet_url = GOOGLE_SHEET_URL
+    if not sheet_url:
+        st.session_state["gsheet_ws"] = None
+        return
+
+    has_secrets = False
+    try:
+        _ = st.secrets["gcp_service_account"]
+        has_secrets = True
+    except (KeyError, FileNotFoundError):
+        pass
+
+    if not has_secrets:
+        st.session_state["gsheet_ws"] = None
+        return
+
+    client, err = get_gsheet_connection()
+    if err:
+        st.session_state["gsheet_ws"] = None
+        return
+
+    ws, err = get_or_create_worksheet(client, sheet_url)
+    if err:
+        st.session_state["gsheet_ws"] = None
+        return
+
+    st.session_state["gsheet_ws"] = ws
+
+
 # ─── Main App ───
 
 def main():
@@ -268,61 +307,98 @@ def main():
     </div>
     """, unsafe_allow_html=True)
 
-    # ── Sidebar ──
-    with st.sidebar:
-        st.markdown("### ⚙️ Google Sheets Connection")
-        has_secrets = False
-        try:
-            _ = st.secrets["gcp_service_account"]
-            has_secrets = True
-        except (KeyError, FileNotFoundError):
-            pass
-
-        sheet_url = st.text_input(
-            "Google Sheet URL",
-            value="https://docs.google.com/spreadsheets/d/1Ja1QU7Fhz9vcDiKOe5z8gbmT3accQWy9Yb-npm7VSjQ/edit?gid=0#gid=0",
-            help="https://docs.google.com/spreadsheets/d/1Ja1QU7Fhz9vcDiKOe5z8gbmT3accQWy9Yb-npm7VSjQ/edit?gid=0#gid=0",
-        )
-
-        if has_secrets and sheet_url:
-            client, err = get_gsheet_connection()
-            if err:
-                st.error(f"Connection error: {err}")
-                st.session_state["gsheet_ws"] = None
-            else:
-                ws, err = get_or_create_worksheet(client, sheet_url)
-                if err:
-                    st.error(err)
-                    st.session_state["gsheet_ws"] = None
-                else:
-                    st.success("✅ Connected to Google Sheet!")
-                    st.session_state["gsheet_ws"] = ws
-        elif not has_secrets:
-            st.info("ℹ️ Google Sheets not configured. Running in **local mode** — see README for setup.")
-            st.session_state["gsheet_ws"] = None
-        else:
-            st.session_state["gsheet_ws"] = None
-
-        st.markdown("---")
-        st.markdown("### 📚 Navigation")
-
-    page = st.sidebar.radio("Go to", ["🏭 Explore Workflows", "✍️ Submit Analysis", "📊 Submissions Dashboard"], label_visibility="collapsed")
+    # Auto-connect Google Sheets in the background
+    auto_connect_gsheet()
 
     if "local_submissions" not in st.session_state:
         st.session_state["local_submissions"] = []
 
-    if page == "🏭 Explore Workflows":
+    # ── Top-level Tabs (always visible, no sidebar needed) ──
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "🏭 Explore Workflows",
+        "✍️ Submit Analysis",
+        "📊 Submissions Dashboard",
+        "⚙️ Settings",
+    ])
+
+    with tab1:
         render_explore()
-    elif page == "✍️ Submit Analysis":
+
+    with tab2:
         render_submit()
-    elif page == "📊 Submissions Dashboard":
+
+    with tab3:
         render_dashboard()
+
+    with tab4:
+        render_settings()
 
     st.markdown("""
     <div class="footer">
         Digital Transformation Simulation · IFHE Center for Distance and Online Education · Managing Digital Transformation Course
     </div>
     """, unsafe_allow_html=True)
+
+
+# ─── Settings Page (for instructor) ───
+
+def render_settings():
+    st.markdown("""
+    <div class="info-box">
+        <h3>⚙️ Connection Settings</h3>
+        <p>This page shows the Google Sheets connection status. Students can ignore this tab — it is for the instructor.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Show connection status
+    ws = st.session_state.get("gsheet_ws")
+    if ws:
+        st.success("✅ Connected to Google Sheet successfully!")
+        st.caption(f"Sheet URL: {GOOGLE_SHEET_URL}")
+    elif GOOGLE_SHEET_URL:
+        st.warning("⚠️ Google Sheet URL is set but connection failed. Check secrets and sheet sharing permissions.")
+
+        # Manual retry
+        if st.button("🔄 Retry Connection"):
+            st.session_state.pop("gsheet_ws", None)
+            auto_connect_gsheet()
+            st.rerun()
+    else:
+        st.info("ℹ️ Running in **local mode** — submissions are saved in session memory only.")
+        st.markdown("**To connect Google Sheets:**")
+        st.markdown("1. Set `GOOGLE_SHEET_URL` at the top of `app.py`")
+        st.markdown("2. Add your service account credentials in Streamlit Secrets")
+        st.markdown("3. Share the Google Sheet with your service account email as Editor")
+
+    # Manual URL override (for testing)
+    with st.expander("Manual Google Sheet URL (override)"):
+        manual_url = st.text_input(
+            "Google Sheet URL",
+            placeholder="https://docs.google.com/spreadsheets/d/...",
+            help="Use this to test with a different sheet. The hardcoded URL in app.py takes priority if set.",
+        )
+        if manual_url and st.button("Connect"):
+            has_secrets = False
+            try:
+                _ = st.secrets["gcp_service_account"]
+                has_secrets = True
+            except (KeyError, FileNotFoundError):
+                pass
+
+            if has_secrets:
+                client, err = get_gsheet_connection()
+                if err:
+                    st.error(f"Connection error: {err}")
+                else:
+                    ws, err = get_or_create_worksheet(client, manual_url)
+                    if err:
+                        st.error(err)
+                    else:
+                        st.session_state["gsheet_ws"] = ws
+                        st.success("✅ Connected!")
+                        st.rerun()
+            else:
+                st.error("No Google credentials found in Streamlit Secrets.")
 
 
 # ─── Explore Page ───
