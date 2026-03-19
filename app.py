@@ -280,8 +280,8 @@ def main():
 
         sheet_url = st.text_input(
             "Google Sheet URL",
-            placeholder="https://docs.google.com/spreadsheets/d/...",
-            help="Paste the full URL of your Google Sheet. Make sure the service account email has Editor access.",
+            value="https://docs.google.com/spreadsheets/d/1Ja1QU7Fhz9vcDiKOe5z8gbmT3accQWy9Yb-npm7VSjQ/edit?gid=0#gid=0",
+            help="https://docs.google.com/spreadsheets/d/1Ja1QU7Fhz9vcDiKOe5z8gbmT3accQWy9Yb-npm7VSjQ/edit?gid=0#gid=0",
         )
 
         if has_secrets and sheet_url:
